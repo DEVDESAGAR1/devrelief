@@ -1,0 +1,6 @@
+{
+  "name": "DevRelief",
+  "description": "Make work feel lighter. A web-first, local-first productivity workbench for engineering teams.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

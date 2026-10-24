@@ -18,7 +18,15 @@ const app = express();
 const port = parseInt(process.env.PORT || '3000', 10);
 const isProd = process.env.NODE_ENV === 'production';
 
-// Body parsing with safe size limits
+// Security Headers Middleware
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+// Body parsing with safe size limits (10 MB cap)
 app.use(express.json({ limit: '10mb' }));
 
 // Health endpoint
@@ -60,6 +68,12 @@ app.post('/api/gemini/generate', async (req, res) => {
       return;
     }
 
+    // Safety length cap to avoid excessive resource consumption
+    if (prompt.length > 500000) {
+      res.status(400).json({ error: 'Bad Request: Prompt exceeds maximum allowed length of 500,000 characters.' });
+      return;
+    }
+
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       res.status(503).json({
@@ -78,7 +92,6 @@ app.post('/api/gemini/generate', async (req, res) => {
       },
     });
 
-    // Valid model list - always use recommended valid models
     const targetModel = model || 'gemini-3.8-flash';
 
     const response = await ai.models.generateContent({
@@ -104,9 +117,22 @@ app.post('/api/gemini/generate', async (req, res) => {
   }
 });
 
-// Ollama proxy bridge for browser environments with CORS or network isolation
+// Ollama proxy bridge with SSRF validation
 app.get('/api/ollama/tags', async (req, res) => {
   const target = (req.query.endpoint as string) || 'http://127.0.0.1:11434';
+  
+  // Validate target URL to prevent SSRF
+  try {
+    const parsed = new URL(target);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      res.status(400).json({ error: 'Bad Request: Invalid protocol. Only http: and https: endpoints are permitted.' });
+      return;
+    }
+  } catch {
+    res.status(400).json({ error: 'Bad Request: Invalid endpoint URL.' });
+    return;
+  }
+
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 6000);

@@ -15,9 +15,20 @@ import {
   Shield,
   Sparkles,
   GitCommit,
+  BookmarkCheck,
+  History,
+  Search,
 } from 'lucide-react';
 
-export type NavView = 'home' | 'ask' | 'catalogue' | 'digest' | 'settings';
+export type NavView =
+  | 'home'
+  | 'ask'
+  | 'catalogue'
+  | 'digest'
+  | 'recipes'
+  | 'history'
+  | 'search'
+  | 'settings';
 
 interface SidebarProps {
   currentView: NavView;
@@ -45,14 +56,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       description: 'Screen A — Role overview & quick tasks',
     },
     {
-      id: 'ask' as NavView,
-      label: 'Ask DevRelief',
-      shortLabel: 'Ask',
-      icon: Sparkles,
-      badge: 'M2',
-      description: 'Screen B — Multimodal evidence canvas',
-    },
-    {
       id: 'digest' as NavView,
       label: 'Workflow Runner',
       shortLabel: 'Runner',
@@ -61,11 +64,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
       description: 'Screen D — 10 implemented workflows across 5 delivery roles',
     },
     {
+      id: 'recipes' as NavView,
+      label: 'Workflow Recipes',
+      shortLabel: 'Recipes',
+      icon: BookmarkCheck,
+      badge: 'M7',
+      description: 'Reusable workflow configurations and input presets',
+    },
+    {
+      id: 'history' as NavView,
+      label: 'Execution History',
+      shortLabel: 'History',
+      icon: History,
+      badge: 'M7',
+      description: 'Audit history and provenance of completed runs',
+    },
+    {
+      id: 'search' as NavView,
+      label: 'Local Search',
+      shortLabel: 'Search',
+      icon: Search,
+      badge: 'M7',
+      description: 'Fast, deterministic workbench search',
+    },
+    {
       id: 'catalogue' as NavView,
       label: 'Workflow Catalogue',
       shortLabel: 'Workflows',
       icon: Layers,
       description: 'Screen C — 5-role directory',
+    },
+    {
+      id: 'ask' as NavView,
+      label: 'Ask DevRelief',
+      shortLabel: 'Ask',
+      icon: Sparkles,
+      badge: 'M2',
+      description: 'Screen B — Multimodal evidence canvas',
     },
     {
       id: 'settings' as NavView,
@@ -101,7 +136,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* Navigation Items */}
-      <nav className="flex-1 p-2 space-y-1">
+      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentView === item.id;
@@ -122,7 +157,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="flex-1 min-w-0 flex items-center justify-between">
                   <span className="truncate">{item.label}</span>
                   {item.badge && (
-                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/50">
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700/60">
                       {item.badge}
                     </span>
                   )}

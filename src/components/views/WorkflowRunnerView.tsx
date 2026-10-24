@@ -25,6 +25,9 @@ import { WORKFLOW_CATALOGUE } from '../../engine/registry.ts';
 import { ProviderRegistry } from '../../providers/registry.ts';
 import { OperatingMode, AnalysisResponse } from '../../types/provider.ts';
 import { CloudConsentModal } from '../modals/CloudConsentModal.tsx';
+import { RecipeStore } from '../../storage/recipe-store.ts';
+import { HistoryStore } from '../../storage/history-store.ts';
+import { Recipe } from '../../types/recipe.ts';
 import {
   Play,
   Copy,
@@ -47,6 +50,9 @@ import {
   Shield,
   Cpu,
   Cloud,
+  BookmarkCheck,
+  Bookmark,
+  X,
 } from 'lucide-react';
 
 // SAMPLES FOR ALL 10 WORKFLOWS
@@ -177,10 +183,12 @@ Risk: Third-party API rate limits during high-load sprint demo.`,
 
 interface WorkflowRunnerViewProps {
   initialWorkflowId?: WorkflowId;
+  initialRecipe?: Recipe | null;
 }
 
 export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
   initialWorkflowId = 'WF-DEV-01',
+  initialRecipe = null,
 }) => {
   const [engine] = useState(() => {
     const e = new WorkflowEngine();
@@ -200,32 +208,62 @@ export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
   const [registry] = useState(() => ProviderRegistry.getInstance());
   const [activeMode, setActiveMode] = useState<OperatingMode>(registry.getActiveMode());
 
-  const [activeWorkflow, setActiveWorkflow] = useState<WorkflowId>(initialWorkflowId);
-  const [inputText, setInputText] = useState(SAMPLES[initialWorkflowId].text);
-  const [sourceName, setSourceName] = useState(SAMPLES[initialWorkflowId].source);
+  const [activeWorkflow, setActiveWorkflow] = useState<WorkflowId>(
+    initialRecipe ? initialRecipe.workflowId : initialWorkflowId
+  );
+  const [inputText, setInputText] = useState(
+    initialRecipe?.inputs.inputText ?? SAMPLES[initialWorkflowId].text
+  );
+  const [sourceName, setSourceName] = useState(
+    initialRecipe?.inputs.sourceName ?? SAMPLES[initialWorkflowId].source
+  );
   const [executionState, setExecutionState] = useState<WorkflowExecutionState>('idle');
   const [result, setResult] = useState<WorkflowResult<any> | null>(null);
   const [failure, setFailure] = useState<ExecutionFailure | null>(null);
   const [copiedMd, setCopiedMd] = useState(false);
 
   // Auxiliary fields for specific workflows
-  const [aux1, setAux1] = useState(SAMPLES[initialWorkflowId].meta?.targetUser || SAMPLES[initialWorkflowId].meta?.meetingTitle || SAMPLES[initialWorkflowId].meta?.featureName || SAMPLES[initialWorkflowId].meta?.projectLabel || '');
-  const [aux2, setAux2] = useState(SAMPLES[initialWorkflowId].meta?.businessObjective || SAMPLES[initialWorkflowId].meta?.reportingPeriod || SAMPLES[initialWorkflowId].meta?.expectedBehaviorNotes || '');
+  const [aux1, setAux1] = useState(
+    initialRecipe?.inputs.aux1 ??
+      (SAMPLES[initialWorkflowId].meta?.targetUser ||
+        SAMPLES[initialWorkflowId].meta?.meetingTitle ||
+        SAMPLES[initialWorkflowId].meta?.featureName ||
+        SAMPLES[initialWorkflowId].meta?.projectLabel ||
+        '')
+  );
+  const [aux2, setAux2] = useState(
+    initialRecipe?.inputs.aux2 ??
+      (SAMPLES[initialWorkflowId].meta?.businessObjective ||
+        SAMPLES[initialWorkflowId].meta?.reportingPeriod ||
+        SAMPLES[initialWorkflowId].meta?.expectedBehaviorNotes ||
+        '')
+  );
 
   // AI Enhancement state
   const [aiEnhancement, setAiEnhancement] = useState<AnalysisResponse | null>(null);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isConsentOpen, setIsConsentOpen] = useState(false);
 
+  // Recipe Integration State
+  const [activeRecipe, setActiveRecipe] = useState<Recipe | null>(initialRecipe);
+  const [isSaveRecipeOpen, setIsSaveRecipeOpen] = useState(false);
+  const [recipeName, setRecipeName] = useState('');
+  const [recipeDescription, setRecipeDescription] = useState('');
+  const [recipeTags, setRecipeTags] = useState('template');
+  const [saveRecipeError, setSaveRecipeError] = useState<string | null>(null);
+  const [savedRecipeSuccess, setSavedRecipeSuccess] = useState(false);
+
   useEffect(() => {
     return registry.onModeChange((m) => setActiveMode(m));
   }, [registry]);
 
   useEffect(() => {
-    if (initialWorkflowId && initialWorkflowId !== activeWorkflow) {
+    if (initialRecipe) {
+      loadRecipe(initialRecipe);
+    } else if (initialWorkflowId && initialWorkflowId !== activeWorkflow) {
       switchWorkflow(initialWorkflowId);
     }
-  }, [initialWorkflowId]);
+  }, [initialRecipe, initialWorkflowId]);
 
   useEffect(() => {
     return engine.onStateChange((state) => {
@@ -235,8 +273,29 @@ export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
     });
   }, [engine]);
 
+  const loadRecipe = (recipe: Recipe) => {
+    setActiveRecipe(recipe);
+    setActiveWorkflow(recipe.workflowId);
+    engine.reset();
+    setExecutionState('idle');
+    setResult(null);
+    setFailure(null);
+    setAiEnhancement(null);
+
+    setInputText(recipe.inputs.inputText ?? '');
+    setSourceName(recipe.inputs.sourceName ?? 'evidence.log');
+    setAux1(recipe.inputs.aux1 ?? '');
+    setAux2(recipe.inputs.aux2 ?? '');
+
+    if (recipe.providerPreference) {
+      registry.setActiveMode(recipe.providerPreference);
+      setActiveMode(recipe.providerPreference);
+    }
+  };
+
   const switchWorkflow = (id: WorkflowId) => {
     setActiveWorkflow(id);
+    setActiveRecipe(null);
     engine.reset();
     setExecutionState('idle');
     setResult(null);
@@ -246,62 +305,127 @@ export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
     const s = SAMPLES[id];
     setInputText(s.text);
     setSourceName(s.source);
-    setAux1(s.meta?.targetUser || s.meta?.meetingTitle || s.meta?.featureName || s.meta?.projectLabel || s.meta?.sprintName || s.meta?.documentTitle || '');
+    setAux1(
+      s.meta?.targetUser ||
+        s.meta?.meetingTitle ||
+        s.meta?.featureName ||
+        s.meta?.projectLabel ||
+        s.meta?.sprintName ||
+        s.meta?.documentTitle ||
+        ''
+    );
     setAux2(s.meta?.businessObjective || s.meta?.reportingPeriod || s.meta?.expectedBehaviorNotes || '');
   };
 
   const handleRun = async () => {
     setAiEnhancement(null);
+    const startedAt = new Date().toISOString();
+    const startTime = performance.now();
+    let execOutcome: { success: boolean; result?: WorkflowResult<any>; failure?: ExecutionFailure };
+
     if (activeWorkflow === 'WF-DEV-01') {
-      await engine.executeWorkflow('WF-DEV-01', { rawLog: inputText, sourceName });
+      execOutcome = await engine.executeWorkflow('WF-DEV-01', { rawLog: inputText, sourceName });
     } else if (activeWorkflow === 'WF-DEV-02') {
-      await engine.executeWorkflow('WF-DEV-02', { rawDiffOrLog: inputText, sourceName });
+      execOutcome = await engine.executeWorkflow('WF-DEV-02', { rawDiffOrLog: inputText, sourceName });
     } else if (activeWorkflow === 'WF-DEV-03') {
-      await engine.executeWorkflow('WF-DEV-03', { rawLogOrTrace: inputText, sourceName });
+      execOutcome = await engine.executeWorkflow('WF-DEV-03', { rawLogOrTrace: inputText, sourceName });
     } else if (activeWorkflow === 'WF-PO-01') {
-      await engine.executeWorkflow('WF-PO-01', {
+      execOutcome = await engine.executeWorkflow('WF-PO-01', {
         rawNotes: inputText,
         sourceName,
         targetUser: aux1,
         businessObjective: aux2,
       });
     } else if (activeWorkflow === 'WF-PO-02') {
-      await engine.executeWorkflow('WF-PO-02', {
+      execOutcome = await engine.executeWorkflow('WF-PO-02', {
         specText: inputText,
         sourceName,
         documentTitle: aux1,
       });
     } else if (activeWorkflow === 'WF-SM-01') {
-      await engine.executeWorkflow('WF-SM-01', {
+      execOutcome = await engine.executeWorkflow('WF-SM-01', {
         meetingNotes: inputText,
         sourceName,
         meetingTitle: aux1,
       });
     } else if (activeWorkflow === 'WF-SM-02') {
-      await engine.executeWorkflow('WF-SM-02', {
+      execOutcome = await engine.executeWorkflow('WF-SM-02', {
         retroNotes: inputText,
         sourceName,
         sprintName: aux1,
       });
     } else if (activeWorkflow === 'WF-QA-01') {
-      await engine.executeWorkflow('WF-QA-01', {
+      execOutcome = await engine.executeWorkflow('WF-QA-01', {
         specText: inputText,
         sourceName,
         featureName: aux1,
       });
     } else if (activeWorkflow === 'WF-QA-02') {
-      await engine.executeWorkflow('WF-QA-02', {
+      execOutcome = await engine.executeWorkflow('WF-QA-02', {
         errorLogOrTrace: inputText,
         sourceName,
         expectedBehaviorNotes: aux2,
         environmentNotes: aux1,
       });
     } else if (activeWorkflow === 'WF-EM-01') {
-      await engine.executeWorkflow('WF-EM-01', {
+      execOutcome = await engine.executeWorkflow('WF-EM-01', {
         combinedEvidenceText: inputText,
         sourceName,
         projectLabel: aux1,
         reportingPeriod: aux2,
+      });
+    } else {
+      execOutcome = { success: false, failure: { code: 'UNKNOWN_WORKFLOW', message: 'Workflow not found', failedAt: new Date().toISOString() } };
+    }
+
+    const completedAt = new Date().toISOString();
+    const durationMs = Math.round(performance.now() - startTime);
+
+    // Record into HistoryStore with clear provider provenance
+    const historyStore = HistoryStore.getInstance();
+    const activeMetaItem = WORKFLOW_CATALOGUE.find((w) => w.id === activeWorkflow);
+
+    if (execOutcome.success && execOutcome.result) {
+      const summaryText = execOutcome.result.markdown.slice(0, 240).replace(/[\r\n]+/g, ' ');
+      historyStore.recordExecution({
+        workflowId: activeWorkflow,
+        workflowName: activeMetaItem?.name || activeWorkflow,
+        targetRole: activeMetaItem?.targetRole || 'developer',
+        startedAt,
+        completedAt,
+        durationMs,
+        status: 'succeeded',
+        providerModeRequested: activeMode,
+        providerActuallyUsed: 'Deterministic Core Engine',
+        recipeId: activeRecipe?.id,
+        recipeName: activeRecipe?.name,
+        recipeVersion: activeRecipe?.version,
+        summary: summaryText,
+        evidenceSources: [sourceName || 'inline_evidence'],
+        epistemicRating: execOutcome.result.epistemicRating,
+        disclaimers: execOutcome.result.disclaimers || [],
+        warnings: [],
+        resultMarkdownPreview: execOutcome.result.markdown,
+      });
+    } else if (execOutcome.failure) {
+      historyStore.recordExecution({
+        workflowId: activeWorkflow,
+        workflowName: activeMetaItem?.name || activeWorkflow,
+        targetRole: activeMetaItem?.targetRole || 'developer',
+        startedAt,
+        completedAt,
+        durationMs,
+        status: 'failed',
+        providerModeRequested: activeMode,
+        providerActuallyUsed: 'Deterministic Core Engine',
+        recipeId: activeRecipe?.id,
+        recipeName: activeRecipe?.name,
+        recipeVersion: activeRecipe?.version,
+        summary: `Execution failed: ${execOutcome.failure.message}`,
+        evidenceSources: [sourceName || 'inline_evidence'],
+        disclaimers: [],
+        warnings: [],
+        errorDetails: execOutcome.failure.details || execOutcome.failure.message,
       });
     }
   };
@@ -318,6 +442,8 @@ export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
   const executeAIEnhancement = async (userConsentGiven: boolean) => {
     if (!result) return;
     setIsEnhancing(true);
+    const startedAt = new Date().toISOString();
+    const startTime = performance.now();
     try {
       const provider = registry.getActiveProvider();
       const prompt = `Review the following deterministic workflow output for "${activeMeta?.name}". Suggest improvements, alternative edge cases, or clearer wording:\n\n${result.markdown}`;
@@ -328,6 +454,31 @@ export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
           'You are assisting an engineering team by supplementing a deterministic workflow output with suggested refinements. Label all suggestions as unverified proposals.',
       });
       setAiEnhancement(response);
+
+      // Record AI enhancement run in history
+      const durationMs = Math.round(performance.now() - startTime);
+      const historyStore = HistoryStore.getInstance();
+      const activeMetaItem = WORKFLOW_CATALOGUE.find((w) => w.id === activeWorkflow);
+      historyStore.recordExecution({
+        workflowId: activeWorkflow,
+        workflowName: `${activeMetaItem?.name || activeWorkflow} (AI Enhancement)`,
+        targetRole: activeMetaItem?.targetRole || 'developer',
+        startedAt,
+        completedAt: new Date().toISOString(),
+        durationMs,
+        status: 'succeeded',
+        providerModeRequested: activeMode,
+        providerActuallyUsed: `${response.provenance.providerDisplayName} (${response.provenance.modelId})`,
+        modelUsed: response.provenance.modelId,
+        recipeId: activeRecipe?.id,
+        recipeName: activeRecipe?.name,
+        summary: `AI suggestions generated via ${response.provenance.providerDisplayName}: ${response.text.slice(0, 160)}...`,
+        evidenceSources: [sourceName || 'inline_evidence'],
+        epistemicRating: 'extrapolated_hypothesis',
+        disclaimers: ['Unverified proposal synthesized by external AI model.'],
+        warnings: [],
+        resultMarkdownPreview: response.text,
+      });
     } catch (err: unknown) {
       alert(`AI Enhancement Error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -347,8 +498,17 @@ export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
     const s = SAMPLES[activeWorkflow];
     setInputText(s.text);
     setSourceName(s.source);
-    setAux1(s.meta?.targetUser || s.meta?.meetingTitle || s.meta?.featureName || s.meta?.projectLabel || s.meta?.sprintName || s.meta?.documentTitle || '');
+    setAux1(
+      s.meta?.targetUser ||
+        s.meta?.meetingTitle ||
+        s.meta?.featureName ||
+        s.meta?.projectLabel ||
+        s.meta?.sprintName ||
+        s.meta?.documentTitle ||
+        ''
+    );
     setAux2(s.meta?.businessObjective || s.meta?.reportingPeriod || s.meta?.expectedBehaviorNotes || '');
+    setActiveRecipe(null);
     handleReset();
   };
 
@@ -373,7 +533,56 @@ export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
     setTimeout(() => setCopiedMd(false), 2000);
   };
 
+  const handleOpenSaveRecipe = () => {
+    setRecipeName(activeRecipe?.name ? `${activeRecipe.name} (Updated)` : `${activeMeta?.name || 'Workflow'} Preset`);
+    setRecipeDescription(activeRecipe?.description || `Reusable preset for ${activeWorkflow}`);
+    setRecipeTags('preset, team');
+    setSaveRecipeError(null);
+    setIsSaveRecipeOpen(true);
+  };
+
+  const handleConfirmSaveRecipe = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaveRecipeError(null);
+
+    const recipeStore = RecipeStore.getInstance();
+    const tagsArr = recipeTags
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    const res = recipeStore.save({
+      name: recipeName,
+      description: recipeDescription,
+      workflowId: activeWorkflow,
+      targetRole: activeMeta?.targetRole || 'developer',
+      providerPreference: activeMode,
+      inputs: {
+        inputText,
+        sourceName,
+        aux1,
+        aux2,
+      },
+      tags: tagsArr,
+    });
+
+    if (!res.success) {
+      setSaveRecipeError(res.errors?.join('; ') || 'Failed to save recipe.');
+      return;
+    }
+
+    if (res.recipe) {
+      setActiveRecipe(res.recipe);
+    }
+    setIsSaveRecipeOpen(false);
+    setSavedRecipeSuccess(true);
+    setTimeout(() => setSavedRecipeSuccess(false), 3000);
+  };
+
   const activeMeta = WORKFLOW_CATALOGUE.find((w) => w.id === activeWorkflow);
+  const availableRecipes = RecipeStore.getInstance()
+    .getAll()
+    .filter((r) => r.workflowId === activeWorkflow);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -389,6 +598,104 @@ export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
         onCancel={() => setIsConsentOpen(false)}
       />
 
+      {/* Save Recipe Modal */}
+      {isSaveRecipeOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <BookmarkCheck className="w-5 h-5 text-blue-400" />
+                <h3 className="text-base font-bold text-white">Save Current Inputs as Recipe</h3>
+              </div>
+              <button
+                onClick={() => setIsSaveRecipeOpen(false)}
+                className="p-1 rounded text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {saveRecipeError && (
+              <div className="p-2.5 rounded bg-red-950/60 border border-red-800 text-red-200 text-xs">
+                {saveRecipeError}
+              </div>
+            )}
+
+            <form onSubmit={handleConfirmSaveRecipe} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-300 mb-1">Recipe Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={recipeName}
+                  onChange={(e) => setRecipeName(e.target.value)}
+                  className="w-full p-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-300 mb-1">Description</label>
+                <textarea
+                  rows={2}
+                  value={recipeDescription}
+                  onChange={(e) => setRecipeDescription(e.target.value)}
+                  className="w-full p-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-300 mb-1">Tags (Comma-separated)</label>
+                <input
+                  type="text"
+                  value={recipeTags}
+                  onChange={(e) => setRecipeTags(e.target.value)}
+                  className="w-full p-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="p-2 rounded bg-slate-950 border border-slate-800 text-[11px] text-slate-400 flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>Preset inputs and source label will be saved. Secrets are rejected pre-flight.</span>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsSaveRecipeOpen(false)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors shadow-sm"
+                >
+                  Save Recipe
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Active Recipe Banner if Loaded */}
+      {activeRecipe && (
+        <div className="p-3 rounded-lg bg-blue-950/40 border border-blue-800/80 text-xs text-blue-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BookmarkCheck className="w-4 h-4 text-blue-400" />
+            <span>
+              Loaded Recipe: <strong>{activeRecipe.name}</strong> (v{activeRecipe.version})
+            </span>
+          </div>
+          <button
+            onClick={() => setActiveRecipe(null)}
+            className="text-[11px] underline text-blue-300 hover:text-white"
+          >
+            Clear Recipe Preset
+          </button>
+        </div>
+      )}
+
       {/* Workflow Tabs Header */}
       <div className="space-y-2 border-b border-slate-800 pb-4">
         <div className="flex items-center justify-between">
@@ -396,13 +703,15 @@ export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
             Select Delivery Workflow (10 Implemented across 5 Roles):
           </span>
           <div className="flex items-center gap-2">
-            <span className={`text-[11px] font-mono px-2 py-0.5 rounded border flex items-center gap-1 ${
-              activeMode === 'deterministic'
-                ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800'
-                : activeMode === 'local_ai'
-                ? 'bg-purple-950/80 text-purple-400 border-purple-800'
-                : 'bg-cyan-950/80 text-cyan-400 border-cyan-800'
-            }`}>
+            <span
+              className={`text-[11px] font-mono px-2 py-0.5 rounded border flex items-center gap-1 ${
+                activeMode === 'deterministic'
+                  ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800'
+                  : activeMode === 'local_ai'
+                  ? 'bg-purple-950/80 text-purple-400 border-purple-800'
+                  : 'bg-cyan-950/80 text-cyan-400 border-cyan-800'
+              }`}
+            >
               {activeMode === 'deterministic' && <Shield className="w-3 h-3 text-emerald-400" />}
               {activeMode === 'local_ai' && <Cpu className="w-3 h-3 text-purple-400" />}
               {activeMode === 'cloud_ai' && <Cloud className="w-3 h-3 text-cyan-400" />}
@@ -449,7 +758,37 @@ export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
             <p className="text-xs text-slate-400 mt-1 max-w-2xl">{activeMeta?.description}</p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Load Recipe Dropdown */}
+            {availableRecipes.length > 0 && (
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    const r = availableRecipes.find((item) => item.id === e.target.value);
+                    if (r) loadRecipe(r);
+                  }
+                }}
+                value={activeRecipe?.id || ''}
+                className="text-xs px-2.5 py-1.5 rounded bg-slate-800 text-slate-300 border border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">Load Saved Recipe...</option>
+                {availableRecipes.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name} (v{r.version})
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <button
+              onClick={handleOpenSaveRecipe}
+              className="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs border border-slate-700 flex items-center gap-1.5 transition-colors"
+              title="Save inputs as a reusable recipe"
+            >
+              <Bookmark className="w-3.5 h-3.5 text-blue-400" />
+              <span>{savedRecipeSuccess ? 'Recipe Saved!' : 'Save Recipe'}</span>
+            </button>
+
             <button
               onClick={loadSample}
               className="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs border border-slate-700 flex items-center gap-1.5 transition-colors"
@@ -523,7 +862,11 @@ export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
                 type="text"
                 value={aux2 || sourceName}
                 onChange={(e) => {
-                  if (activeWorkflow === 'WF-PO-01' || activeWorkflow === 'WF-EM-01' || activeWorkflow === 'WF-QA-02') {
+                  if (
+                    activeWorkflow === 'WF-PO-01' ||
+                    activeWorkflow === 'WF-EM-01' ||
+                    activeWorkflow === 'WF-QA-02'
+                  ) {
                     setAux2(e.target.value);
                   } else {
                     setSourceName(e.target.value);
@@ -575,7 +918,9 @@ export const WorkflowRunnerView: React.FC<WorkflowRunnerViewProps> = ({
         <div className="flex items-center justify-between pt-2 border-t border-slate-800">
           <span className="text-[11px] text-slate-400">
             Engine: <strong className="text-emerald-400 font-normal">Deterministic-First Shared Engine</strong> • Target Role:{' '}
-            <strong className="text-slate-300 font-normal capitalize">{activeMeta?.targetRole.replace('_', ' ')}</strong>
+            <strong className="text-slate-300 font-normal capitalize">
+              {activeMeta?.targetRole.replace('_', ' ')}
+            </strong>
           </span>
 
           <div className="flex items-center gap-2">

@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { Role, WorkflowId } from './types/workflow.ts';
+import { Recipe } from './types/recipe.ts';
 import { TopBar } from './components/shell/TopBar.tsx';
 import { Sidebar, NavView } from './components/shell/Sidebar.tsx';
 import { MobileNav } from './components/shell/MobileNav.tsx';
@@ -12,6 +13,9 @@ import { CommandCenterView } from './components/views/CommandCenterView.tsx';
 import { AskWorkspaceView } from './components/views/AskWorkspaceView.tsx';
 import { WorkflowCatalogueView } from './components/views/WorkflowCatalogueView.tsx';
 import { WorkflowRunnerView } from './components/views/WorkflowRunnerView.tsx';
+import { RecipesView } from './components/views/RecipesView.tsx';
+import { HistoryView } from './components/views/HistoryView.tsx';
+import { LocalSearchView } from './components/views/LocalSearchView.tsx';
 import { SettingsView } from './components/views/SettingsView.tsx';
 import { SpecificationPortalView } from './components/views/SpecificationPortalView.tsx';
 
@@ -19,6 +23,7 @@ export default function App() {
   const [currentRole, setCurrentRole] = useState<Role>('developer');
   const [currentView, setCurrentView] = useState<NavView>('home');
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<WorkflowId>('WF-DEV-01');
+  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSpecsOpen, setIsSpecsOpen] = useState(false);
 
@@ -33,6 +38,14 @@ export default function App() {
 
   const handleSelectWorkflow = (wfId: WorkflowId) => {
     setSelectedWorkflowId(wfId);
+    setSelectedRecipe(null);
+    setCurrentView('digest');
+    setIsSpecsOpen(false);
+  };
+
+  const handleRunRecipe = (recipe: Recipe) => {
+    setSelectedWorkflowId(recipe.workflowId);
+    setSelectedRecipe(recipe);
     setCurrentView('digest');
     setIsSpecsOpen(false);
   };
@@ -89,7 +102,31 @@ export default function App() {
               )}
 
               {currentView === 'digest' && (
-                <WorkflowRunnerView initialWorkflowId={selectedWorkflowId} />
+                <WorkflowRunnerView
+                  initialWorkflowId={selectedWorkflowId}
+                  initialRecipe={selectedRecipe}
+                />
+              )}
+
+              {currentView === 'recipes' && (
+                <RecipesView
+                  currentRole={currentRole}
+                  onRunRecipe={handleRunRecipe}
+                />
+              )}
+
+              {currentView === 'history' && (
+                <HistoryView
+                  onRerunWorkflow={(wfId) => handleSelectWorkflow(wfId)}
+                />
+              )}
+
+              {currentView === 'search' && (
+                <LocalSearchView
+                  onSelectWorkflow={handleSelectWorkflow}
+                  onRunRecipe={handleRunRecipe}
+                  onViewHistory={() => setCurrentView('history')}
+                />
               )}
 
               {currentView === 'settings' && <SettingsView />}
